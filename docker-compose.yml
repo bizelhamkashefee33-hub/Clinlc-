@@ -1,0 +1,94 @@
+version: '3.9'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: clinlc-postgres
+    environment:
+      POSTGRES_USER: clinlc_user
+      POSTGRES_PASSWORD: clinlc_password_2026
+      POSTGRES_DB: clinlc_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - clinlc-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clinlc_user -d clinlc_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: clinlc-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - clinlc-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: clinlc-backend
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: clinlc_db
+      DB_USER: clinlc_user
+      DB_PASSWORD: clinlc_password_2026
+      REDIS_URL: redis://redis:6379
+      JWT_SECRET: your_jwt_secret_key_change_in_production
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - clinlc-network
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+
+  # Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: clinlc-frontend
+    environment:
+      VITE_API_URL: http://backend:3000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    networks:
+      - clinlc-network
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  clinlc-network:
+    driver: bridge
